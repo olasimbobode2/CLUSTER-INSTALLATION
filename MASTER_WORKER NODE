@@ -1,0 +1,136 @@
+
+# make sure your server is up to date
+#switch to root.
+
+#sudo su 
+
+#Turn Off Swap Space for both  master k8s node and slave nodes
+swapoff -a
+sed -i '/ swap / s/^\(.*\)$/#\1/g' /etc/fstab  
+
+<<note
+vim /etc/fstab and stop swap from reboot which is needed  and put a comment on this line 
+# "/swap.img       none    swap    sw      0       0 #
+note
+
+
+# for all the nodes
+#after the above,  a reboot will not turn on swap  
+
+
+#Update the apt package index and install packages needed to use the Kubernetes apt repository:
+apt-get update -y
+apt-get install -y apt-transport-https ca-certificates curl fish nano unzip
+
+
+
+#Add the Kubernetes apt repository:
+echo "deb [signed-by=/usr/share/keyrings/kubernetes-archive-keyring.gpg] https://apt.kubernetes.io/ kubernetes-xenial main" | tee /etc/apt/sources.list.d/kubernetes.list
+
+#Download the Google Cloud public signing key:
+curl -fsSLo /usr/share/keyrings/kubernetes-archive-keyring.gpg https://packages.cloud.google.com/apt/doc/apt-key.gpg
+
+curl -s https://packages.cloud.google.com/apt/doc/apt-key.gpg |  apt-key add -
+
+#echo "step1"
+echo "deb https://apt.kubernetes.io/ kubernetes-xenial main" | tee /etc/apt/sources.list.d/kubernetes.list
+
+#echo "kubeadm install"
+sudo apt update -y
+
+
+#Update apt package index, kubeadm and kubectl, kubernetes-cni and pin their version:
+apt-get update
+apt-get install -y vim wget unzip curl fish tmux
+apt-get install -y kubeadm
+apt-get install -y kubectl
+apt-get install -y kubelet
+
+apt-mark hold kubelet kubeadm kubectl  
+#The kubelet is now restarting every few seconds, as it waits in a crashloop for kubeadm to tell it what to do.
+
+# Setup required sysctl params, these persist across reboots.
+tee /etc/sysctl.d/kubernetes.conf<<EOF
+net.bridge.bridge-nf-call-ip6tables = 1
+net.bridge.bridge-nf-call-iptables = 1
+net.ipv4.ip_forward = 1
+EOF
+
+sysctl --system
+
+# setup containerd and load the modules required
+cat <<EOF | tee /etc/modules-load.d/containerd.conf
+overlay
+br_netfilter
+EOF
+
+# Ensure sysctl params are set
+# Enable kernel modules 
+modprobe overlay
+modprobe br_netfilter
+
+# make sure that the br_netfilter module is loaded:
+lsmod | grep br_netfilter
+
+# Add some settings to sysctl and configure sysctl.
+# Setup required sysctl params, these persist across reboots.
+
+# Apply sysctl params without reboot
+sysctl --system
+
+#===============container runtime (docker, containerd or CRI-O)==================================
+#installing containerd
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | apt-key add -
+add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
+
+apt update
+apt install -y containerd.io
+
+# Configure containerd:
+mkdir -p /etc/containerd
+containerd config default | tee /etc/containerd/config.toml
+
+# Restart containerd:
+systemctl start containerd
+systemctl restart containerd
+systemctl enable containerd   
+
+# enable kubelet:
+systemctl start kubelet
+systemctl enable kubelet
+
+#kubelet will start running only when a cluster is up
+
+apt update
+
+#=================================== reinstalling the CRI ===================================================
+
+apt update
+apt install -y containerd.io
+
+# Configure containerd:
+mkdir -p /etc/containerd
+containerd config default | tee /etc/containerd/config.toml
+
+# Restart containerd:
+systemctl start containerd
+systemctl restart containerd
+systemctl enable containerd   
+
+# enable kubelet:
+systemctl start kubelet
+systemctl enable kubelet
+
+#kubelet will start running only when a cluster is up
+
+apt update
+
+
+
+
+#===================== END of K8S installation for both master and nodes =========================================
+
+
+
+#for master to run  pods as well because by default it is not allowed, run the following command
+#kubectl taint node $(hostname) node-role.kubernetes.io/control-plane:NoSchedule-
